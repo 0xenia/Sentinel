@@ -109,13 +109,25 @@ void Menu::DrawUI() {
 
         ImGui::SameLine();
         ImGui::Checkbox("Auto Scroll Logs", &auto_scroll);
+        ImGui::SameLine();
+        if (ImGui::Button("Copy Logs to Clipboard"))
+        {
+            if (!Process::logger.getLogs().empty())
+            {
+                std::string allLogs;
+                for (const auto& Logs : Process::logger.getLogs()) {
+                    allLogs += Logs + "\n";
+                }
+                ImGui::SetClipboardText(allLogs.c_str());
+            }
+        }
 
         ImGui::Separator();
 
         ImGui::Text("Memory Regions Being Monitored:");
         for (const auto &region: selectedProc.memoryRegions) {
-            ImGui::TextWrapped("Base Address: 0x%p, Size: %zu, Hash: %lu",
-                               region.baseAddress, region.size, region.hash);
+            ImGui::TextWrapped("Base Address: 0x%p, Size: 0x%lx, Hash: 0x%lx",
+                               region.baseAddress, static_cast<uint32_t>(region.size), region.hash);
         }
     } else {
         ImGui::Text("No process selected.");

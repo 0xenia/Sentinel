@@ -37,6 +37,21 @@ struct FProcessList {
     std::vector<MemoryRegion> memoryRegions;
 };
 
+#define HOOK_SCAN_BYTE_COUNT 0x10
+
+struct HookInfo
+{
+    const wchar_t* ModuleName;
+    const char* FunctionName;
+
+    HINSTANCE		hModuleBase;
+    void* pFunc;
+    UINT			ChangeCount;
+    BYTE			OriginalBytes[HOOK_SCAN_BYTE_COUNT];
+
+    DWORD ErrorCode;
+};
+
 
 class Process {
 public:

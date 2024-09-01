@@ -10,8 +10,6 @@
 
 Logger Process::logger;
 
-std::mutex logMutex;
-
 bool Process::IsIntegrityCheckRunning = false;
 std::atomic_bool Process::keep_running;
 
@@ -32,10 +30,14 @@ bool Process::ShouldIgnoreProcess(const std::string &ProcessName) {
 }
 
 bool Process::IsProcessRunning(const FProcessList &Proc) {
-    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, Proc.pid);
+    HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, Proc.pid);
     if (hProcess) {
+        DWORD exitCode;
+        if (GetExitCodeProcess(hProcess, &exitCode)) {
+            CloseHandle(hProcess);
+            return (exitCode == STILL_ACTIVE);
+        }
         CloseHandle(hProcess);
-        return true;
     }
     return false;
 }
@@ -85,7 +87,7 @@ std::vector<FProcessList> Process::GetProcessList() {
     return ProcessList;
 }
 
-bool GetTextSectionInfo(HANDLE hProcess, LPVOID &textSectionBase, SIZE_T &textSectionSize) {
+bool GetTextSectionInfo(HANDLE hProcess, LPVOID& textSectionBase, SIZE_T& textSectionSize) {
     PROCESS_BASIC_INFORMATION pbi;
     ULONG returnLength = 0;
     NTSTATUS status = NtQueryInformationProcess(hProcess, ProcessBasicInformation, &pbi, sizeof(pbi), &returnLength);
@@ -102,11 +104,11 @@ bool GetTextSectionInfo(HANDLE hProcess, LPVOID &textSectionBase, SIZE_T &textSe
         return false;
     }
 
-    auto *moduleList = ldr.InMemoryOrderModuleList.Flink;
+    auto* moduleList = ldr.InMemoryOrderModuleList.Flink;
     LDR_DATA_TABLE_ENTRY firstEntry;
 
     if (!ReadProcessMemory(hProcess, CONTAINING_RECORD(moduleList, LDR_DATA_TABLE_ENTRY, InMemoryOrderLinks),
-                           &firstEntry, sizeof(firstEntry), nullptr)) {
+        &firstEntry, sizeof(firstEntry), nullptr)) {
         return false;
     }
 
@@ -117,26 +119,56 @@ bool GetTextSectionInfo(HANDLE hProcess, LPVOID &textSectionBase, SIZE_T &textSe
         return false;
     }
 
-    IMAGE_NT_HEADERS64 ntHeaders;
+    bool is64Bit = false;
+    IMAGE_NT_HEADERS64 ntHeaders64;
+    IMAGE_NT_HEADERS32 ntHeaders32;
     PVOID ntHeadersAddress = static_cast<PBYTE>(imageBaseAddress) + dosHeader.e_lfanew;
-    if (!ReadProcessMemory(hProcess, ntHeadersAddress, &ntHeaders, sizeof(ntHeaders), nullptr)) {
-        return false;
-    }
 
-    PVOID sectionHeaderAddress = static_cast<PBYTE>(ntHeadersAddress) + sizeof(ntHeaders);
-    for (WORD i = 0; i < ntHeaders.FileHeader.NumberOfSections; ++i) {
-        IMAGE_SECTION_HEADER sectionHeader;
-        if (!ReadProcessMemory(hProcess, sectionHeaderAddress, &sectionHeader, sizeof(sectionHeader), nullptr)) {
+    if (dosHeader.e_magic == IMAGE_DOS_SIGNATURE) {
+        if (!ReadProcessMemory(hProcess, ntHeadersAddress, &ntHeaders64, sizeof(ntHeaders64), nullptr)) {
             return false;
         }
-
-        std::string sectionName = std::string(reinterpret_cast<char *>(sectionHeader.Name), 8);
-        if (sectionName.find(".text") != std::string::npos) {
-            textSectionBase = static_cast<PBYTE>(imageBaseAddress) + sectionHeader.VirtualAddress;
-            textSectionSize = sectionHeader.Misc.VirtualSize;
-            return true;
+        if (ntHeaders64.Signature == IMAGE_NT_SIGNATURE && ntHeaders64.OptionalHeader.Magic == IMAGE_NT_OPTIONAL_HDR64_MAGIC) {
+            is64Bit = true;
         }
-        sectionHeaderAddress = static_cast<PBYTE>(sectionHeaderAddress) + sizeof(IMAGE_SECTION_HEADER);
+    }
+
+    if (is64Bit) {
+        ntHeadersAddress = static_cast<PBYTE>(ntHeadersAddress) + sizeof(IMAGE_NT_HEADERS64);
+        for (WORD i = 0; i < ntHeaders64.FileHeader.NumberOfSections; ++i) {
+            IMAGE_SECTION_HEADER sectionHeader;
+            if (!ReadProcessMemory(hProcess, ntHeadersAddress, &sectionHeader, sizeof(sectionHeader), nullptr)) {
+                return false;
+            }
+
+            std::string sectionName = std::string(reinterpret_cast<char*>(sectionHeader.Name), 8);
+            if (sectionName.find(".text") != std::string::npos) {
+                textSectionBase = static_cast<PBYTE>(imageBaseAddress) + sectionHeader.VirtualAddress;
+                textSectionSize = sectionHeader.Misc.VirtualSize;
+                return true;
+            }
+            ntHeadersAddress = static_cast<PBYTE>(ntHeadersAddress) + sizeof(IMAGE_SECTION_HEADER);
+        }
+    }
+    else {
+        if (!ReadProcessMemory(hProcess, ntHeadersAddress, &ntHeaders32, sizeof(ntHeaders32), nullptr)) {
+            return false;
+        }
+        ntHeadersAddress = static_cast<PBYTE>(ntHeadersAddress) + sizeof(IMAGE_NT_HEADERS32);
+        for (WORD i = 0; i < ntHeaders32.FileHeader.NumberOfSections; ++i) {
+            IMAGE_SECTION_HEADER sectionHeader;
+            if (!ReadProcessMemory(hProcess, ntHeadersAddress, &sectionHeader, sizeof(sectionHeader), nullptr)) {
+                return false;
+            }
+
+            std::string sectionName = std::string(reinterpret_cast<char*>(sectionHeader.Name), 8);
+            if (sectionName.find(".text") != std::string::npos) {
+                textSectionBase = static_cast<PBYTE>(imageBaseAddress) + sectionHeader.VirtualAddress;
+                textSectionSize = sectionHeader.Misc.VirtualSize;
+                return true;
+            }
+            ntHeadersAddress = static_cast<PBYTE>(ntHeadersAddress) + sizeof(IMAGE_SECTION_HEADER);
+        }
     }
 
     return false;
@@ -220,10 +252,6 @@ void Process::CheckIntegrity(const FProcessList &Proc) {
                 }
             }
         } else {
-            if (!IsProcessRunning(Proc)) {
-                keep_running = false;
-                logger.log("Process not running");
-            }
             std::ostringstream oss;
             oss << "Failed to read memory at address: 0x" << std::hex << reinterpret_cast<uintptr_t>(region.
                 baseAddress);
@@ -241,7 +269,12 @@ void Process::StartIntegrityCheck(const FProcessList &Proc) {
     IsIntegrityCheckRunning = true;
 
     std::thread integrityCheckThread([Proc, delayInterval] {
-        while (keep_running && IsProcessRunning(Proc)) {
+        while (keep_running) {
+            if (!IsProcessRunning(Proc))
+            {
+                StopIntegrityCheck();
+                break;
+            }
             CheckIntegrity(Proc);
             std::this_thread::sleep_for(delayInterval);
         }
