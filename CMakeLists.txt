@@ -45,7 +45,9 @@ add_executable(${PROJECT_NAME} ${SRC} ${PLATFORM_SRC}
         src/win/CRC32.cpp
         src/win/CRC32.h
         src/win/Logger.cpp
-        src/win/Logger.h)
+        src/win/Logger.h
+        src/win/Menu.cpp
+        src/win/Menu.h)
 
 # link lib, should install glfw first or prebuild lib and embed in project
     target_link_libraries(${PROJECT_NAME}
