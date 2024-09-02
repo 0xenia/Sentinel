@@ -12,7 +12,7 @@ Logger::~Logger() {
 
 std::string Logger::currentDateTime(const std::string &message) {
     tm newtime{};
-    std::time_t now = std::time(nullptr);
+    const std::time_t now = std::time(nullptr);
     localtime_s(&newtime, &now);
 
     std::ostringstream timestamp;

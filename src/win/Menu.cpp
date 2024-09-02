@@ -49,22 +49,27 @@ void Menu::DrawUI() {
     if (comboOpen) {
         ImGui::InputText("##Filter", filterBuffer, IM_ARRAYSIZE(filterBuffer));
 
-
         const std::string pattern(filterBuffer);
         const std::regex regexPattern(pattern, std::regex_constants::icase);
 
-
         filteredProcessNames.clear();
+        for (const auto &processName: processNames) {
+            if (std::regex_search(processName, regexPattern)) {
+                filteredProcessNames.push_back(processName);
+            }
+        }
 
-
-        for (size_t i = 0; i < processNames.size(); i++) {
-            if (std::regex_search(processNames[i], regexPattern)) {
-                if (ImGui::Selectable(processNames[i].c_str(), selectedProcessIndex == i)) {
-                    selectedProcessIndex = static_cast<int>(i);
+        ImGuiListClipper clipper;
+        clipper.Begin(static_cast<int>(filteredProcessNames.size()));
+        while (clipper.Step()) {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; i++) {
+                if (ImGui::Selectable(filteredProcessNames[i].c_str(), selectedProcessIndex == i)) {
+                    selectedProcessIndex = i;
                     selected_process = selectedProcessIndex;
                 }
             }
         }
+        clipper.End();
 
         ImGui::EndCombo();
     }
@@ -110,12 +115,10 @@ void Menu::DrawUI() {
         ImGui::SameLine();
         ImGui::Checkbox("Auto Scroll Logs", &auto_scroll);
         ImGui::SameLine();
-        if (ImGui::Button("Copy Logs to Clipboard"))
-        {
-            if (!Process::logger.getLogs().empty())
-            {
+        if (ImGui::Button("Copy Logs to Clipboard")) {
+            if (!Process::logger.getLogs().empty()) {
                 std::string allLogs;
-                for (const auto& Logs : Process::logger.getLogs()) {
+                for (const auto &Logs: Process::logger.getLogs()) {
                     allLogs += Logs + "\n";
                 }
                 ImGui::SetClipboardText(allLogs.c_str());
@@ -165,7 +168,7 @@ void Menu::Setup() {
     };
     ::RegisterClassEx(&wc);
     hwnd = CreateWindowExA(WS_EX_DLGMODALFRAME, wc.lpszClassName, _T("Sentinel"), WS_OVERLAPPEDWINDOW, 100, 100,
-                                  1280, 800, nullptr, nullptr, wc.hInstance, nullptr);
+                           1280, 800, nullptr, nullptr, wc.hInstance, nullptr);
     BOOL USE_DARK_MODE = true;
     BOOL SET_IMMERSIVE_DARK_MODE_SUCCESS = SUCCEEDED(DwmSetWindowAttribute(
         hwnd, DWMWINDOWATTRIBUTE::DWMWA_USE_IMMERSIVE_DARK_MODE,

@@ -8,8 +8,8 @@
 // File: 'Lexend-Regular.ttf' (78360 bytes)
 // Exported using binary_to_compressed_c.cpp
 #pragma once
-static const unsigned int Lexend_compressed_size = 51575;
-static const unsigned int Lexend_compressed_data[51576/4] =
+static constexpr unsigned int Lexend_compressed_size = 51575;
+static constexpr unsigned int Lexend_compressed_data[51576/4] =
 {
     0x0000bc57, 0x00000000, 0x18320100, 0x00000400, 0x00010025, 0x82100000, 0x00043e04, 0x45444700, 0x4c444f46, 0x0200005d, 0x01000028, 0x4f504730,
     0x6dd7d653, 0x4f0000d3, 0x38038208, 0x555347f4, 0x6e82d042, 0x1700002a, 0x0c0000f0, 0x2f534ff8, 0x57b48232, 0x202b826e, 0x284582c8, 0x41545360,
